@@ -1,0 +1,39 @@
+version: '3.8'
+services:
+  server:
+    build: ./server
+    container_name: ddos_server
+    ports:
+      - "12345:12345"
+    cap_add:
+      - NET_ADMIN                     
+    networks:
+      - ddos_net
+
+  client1:
+    build: ./client
+    container_name: real_client1
+    environment:
+      - CLIENT_ID=1
+    depends_on:
+      - server
+    networks:
+      - ddos_net
+    stdin_open: true
+    tty: true
+
+  client2:
+    build: ./client
+    container_name: real_client2
+    environment:
+      - CLIENT_ID=2
+    depends_on:
+      - server
+    networks:
+      - ddos_net
+    stdin_open: true
+    tty: true
+
+networks:
+  ddos_net:
+    driver: bridge
