@@ -2,9 +2,17 @@ version: '3.8'
 services:
   server:
     build: ./server
+    cpu_quota: 50000
+    mem_limit: 512m
+    ulimits:
+      nproc: 1024
+      nofile:
+        soft: 1024
+        hard: 2048
     container_name: ddos_server
     ports:
-      - "12345:12345"
+      - "12345:12345/tcp"
+      - "12345:12345/udp"
     cap_add:
       - NET_ADMIN                     
     networks:
