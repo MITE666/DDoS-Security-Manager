@@ -23,6 +23,8 @@ services:
     container_name: real_client1
     environment:
       - CLIENT_ID=1
+      - PROTOCOL=udp
+      - SERVER_HOST=server
     depends_on:
       - server
     networks:
@@ -35,6 +37,8 @@ services:
     container_name: real_client2
     environment:
       - CLIENT_ID=2
+      - PROTOCOL=tcp
+      - SERVER_HOST=server
     depends_on:
       - server
     networks:

@@ -1,5 +1,7 @@
 {
     "files.associations": {
-        "ostream": "cpp"
-    }
+        "ostream": "cpp",
+        "chrono": "cpp"
+    },
+    "cmake.sourceDirectory": "/home/mite666/Documents/Facultate/Licenta/DDoS-Security-Manager/server/security"
 }

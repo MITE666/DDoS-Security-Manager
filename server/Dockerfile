@@ -8,7 +8,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY src/ ./src/
-RUN g++ -std=c++11 -pthread \
+RUN g++ -std=c++17 -pthread \
     src/main.cpp \
     src/headers/EchoThreadPool.cpp \ 
     -o server 

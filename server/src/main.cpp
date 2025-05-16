@@ -10,11 +10,8 @@
 #include "headers/EchoThreadPool.hpp"
 
 int main() {
-    int udp_sock = -1;
-    int tcp_sock = -1;
-
-    udp_sock = ::socket(AF_INET, SOCK_DGRAM, 0);
-    tcp_sock = ::socket(AF_INET, SOCK_STREAM, 0);
+    int udp_sock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    int tcp_sock = ::socket(AF_INET, SOCK_STREAM, 0);
 
     sockaddr_in addr{};
     addr.sin_family         = AF_INET;
@@ -38,7 +35,9 @@ int main() {
         FD_SET(udp_sock, &readset);
         FD_SET(tcp_sock, &readset);
 
-        if (::select(maxfd + 1, &readset, nullptr, nullptr, nullptr) < 0) {
+        int err = ::select(maxfd + 1, &readset, nullptr, nullptr, nullptr); 
+
+        if (err < 0) {
             perror("select");
             break;
         } 
@@ -47,17 +46,40 @@ int main() {
             char buf[MAX_PACKET];
             sockaddr_in cli{};
             socklen_t clen = sizeof(cli);
-            ssize_t len = ::recvfrom(udp_sock, buf, sizeof(buf), 0, reinterpret_cast<sockaddr*>(&cli), &clen);
+            ssize_t len = ::recvfrom(
+                udp_sock, 
+                buf, 
+                sizeof(buf), 
+                0, 
+                reinterpret_cast<sockaddr*>(&cli), 
+                &clen
+            );
 
             if (len > 0) {
-                ::sendto(udp_sock, buf, sizeof(buf), 0, reinterpret_cast<sockaddr*>(&cli), clen);
+                std::string msg(buf, len);
+
+                std::cout << "[UDP] got " << len << "bytes from "
+                          << inet_ntoa(cli.sin_addr) << ":"
+                          << ntohs(cli.sin_port)
+                          << " -> \"" << msg << "\"" << std::endl;
+
+                ::sendto(
+                    udp_sock, 
+                    buf, 
+                    len, 
+                    0, 
+                    reinterpret_cast<sockaddr*>(&cli), 
+                    clen
+                );
             }
         }
 
         if (FD_ISSET(tcp_sock, &readset)) {
-            int client = ::accept(tcp_sock, nullptr, nullptr);
+            sockaddr_in cli{};
+            socklen_t   clen = sizeof(cli);
+            int client = ::accept(tcp_sock, reinterpret_cast<sockaddr*>(&cli), &clen);
             if (client >= 0) {
-                if (!pool.enqueue_client(client)) {
+                if (!pool.enqueue_client(client, cli)) {
                     ::close(client);
                 }
             }
