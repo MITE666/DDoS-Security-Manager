@@ -9,7 +9,7 @@ WORKDIR /app
 
 COPY src/ ./src/
 RUN g++ -std=c++17 -pthread \
-    src/main.cpp \
+    src/server.cpp \
     src/headers/EchoThreadPool.cpp \ 
     -o server 
 

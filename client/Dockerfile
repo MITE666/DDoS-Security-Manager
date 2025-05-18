@@ -4,6 +4,6 @@ WORKDIR /app
 
 COPY src/ ./src/
 
-RUN g++ src/main.cpp -o client
+RUN g++ src/client.cpp -o client
 
 CMD ["./client"]

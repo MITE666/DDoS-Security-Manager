@@ -13,6 +13,9 @@
 static constexpr int PORT = 12345;
 static constexpr int MAX_PACKET = 65535;
 
+using Clock = std::chrono::high_resolution_clock;
+using ms_t  = std::chrono::duration<double, std::milli>;
+
 int main(int argc, char* argv[]) {
     const char* cid_env     = std::getenv("CLIENT_ID");
     std::string client_id   = cid_env ? cid_env : "unknown";
@@ -85,16 +88,25 @@ int main(int argc, char* argv[]) {
         bool      got_reply  = false;
 
         while (retries++ < MAX_RETRIES) {
+            auto t0 = Clock::now();
+
             if (::send(sockfd, msg.data(), msg.size(), 0) < 0) {
                 std::perror("send");
                 break;  
             }
 
             ssize_t recvd = ::recv(sockfd, buf.data(), buf.size(), 0);
+
+            auto t1 = Clock::now();
+
             if (recvd > 0) {
+                double latency_ms = ms_t(t1 - t0).count();
+
                 std::string reply(buf.data(), recvd);
                 std::cout << (use_tcp ? "[TCP]" : "[UDP]")
-                          << " echo: \"" << reply << "\"\n";
+                          << " echo: \"" << reply << "\""
+                          << "  (RTT=" << latency_ms << "ms)"
+                          << std::endl;
                 got_reply = true;
                 break;
             }

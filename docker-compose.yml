@@ -1,5 +1,23 @@
-version: '3.8'
 services:
+  attacker:
+    build: ./attacker
+    container_name: attacker
+    ports:
+      - "8001:8001"
+    networks:
+      - ddos_net
+
+  ddos_client:
+    build: ./ddos_client
+    image: ddos_client_image
+    depends_on: 
+      - attacker
+    environment:
+      - ATTACKER_HOST=attacker
+      - ATTACKER_API_PORT=8001
+    networks:
+      - ddos_net
+
   server:
     build: ./server
     cpu_quota: 50000
