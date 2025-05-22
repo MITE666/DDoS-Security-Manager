@@ -10,7 +10,6 @@ WORKDIR /app
 COPY src/ ./src/
 RUN g++ -std=c++17 -pthread \
     src/server.cpp \
-    src/headers/EchoThreadPool.cpp \ 
     -o server 
 
 COPY security/ ./security

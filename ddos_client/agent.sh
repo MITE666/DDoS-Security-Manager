@@ -2,8 +2,6 @@
 
 set -eux
 
-echo "[agent] ★ startup ★"
-
 ATT_HOST="${ATTACKER_HOST:-attacker}"
 API_PORT="${ATTACKER_CTRL_PORT:-8001}"
 POLL=1

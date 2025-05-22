@@ -21,7 +21,7 @@ services:
   server:
     build: ./server
     cpu_quota: 50000
-    mem_limit: 512m
+    mem_limit: 64m
     ulimits:
       nproc: 1024
       nofile:
