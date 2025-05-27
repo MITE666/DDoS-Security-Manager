@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -eux
+set -eu
 
 ATT_HOST="${ATTACKER_HOST:-attacker}"
 API_PORT="${ATTACKER_CTRL_PORT:-8001}"

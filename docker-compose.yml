@@ -10,16 +10,22 @@ services:
   ddos_client:
     build: ./ddos_client
     image: ddos_client_image
+    cap_add:
+      - NET_RAW
+    network_mode: "service:server"
     depends_on: 
       - attacker
+      - server
     environment:
       - ATTACKER_HOST=attacker
       - ATTACKER_API_PORT=8001
-    networks:
-      - ddos_net
 
   server:
     build: ./server
+    sysctls:
+      net.ipv4.tcp_syncookies: "0"
+      net.ipv4.tcp_max_syn_backlog: "5"
+      net.core.somaxconn: "5"
     cpu_quota: 50000
     mem_limit: 64m
     ulimits:
