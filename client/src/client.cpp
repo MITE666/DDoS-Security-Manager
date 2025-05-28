@@ -112,7 +112,7 @@ int main(int argc, char* argv[]) {
             }
 
             if (errno == ECONNREFUSED) {
-                std::cout << "Fot ECONNREFUSED, retrying ("
+                std::cout << "ECONNREFUSED, retrying ("
                           << retries << "/" << MAX_RETRIES 
                           << ")..." << std::endl;
                 std::this_thread::sleep_for(std::chrono::seconds(1));

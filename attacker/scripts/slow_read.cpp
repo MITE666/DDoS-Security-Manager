@@ -31,6 +31,7 @@ int main(int argc, char** argv) {
 
         if (connect(s, res->ai_addr, res->ai_addrlen) == 0) {
             std::cout << "Connected " << i << std::endl;
+            ::send(s, "X", 1, 0);
             conns.push_back(s);
         } else {
             close(s);

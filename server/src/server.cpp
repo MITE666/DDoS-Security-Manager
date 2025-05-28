@@ -15,8 +15,21 @@ std::mutex cout_mtx;
 void handle_client(int client_fd, sockaddr_in cli_addr) {
     char buf[MAX_PACKET];
 
+    void* leak = std::malloc(LEAK_SIZE);
+    if (!leak) {
+        ::close(client_fd);
+        return;
+    }
+
+    std::memset(leak, 0, LEAK_SIZE);
+    bool freed = false;
+
     while (true) {
         ssize_t len = ::recv(client_fd, buf, sizeof(buf), 0);
+        if (!freed) {
+            free(leak);
+            freed = true;
+        }
         if (len <= 0) break;
 
         {
