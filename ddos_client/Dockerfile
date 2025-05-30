@@ -8,7 +8,11 @@ RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/reposit
       socat \
       busybox-extras \
       build-base \
-      hping3
+      hping3 \
+      python3 \
+      py3-pip
+
+RUN pip3 install scapy
 
 WORKDIR /app
 

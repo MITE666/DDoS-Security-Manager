@@ -15,6 +15,7 @@ static constexpr int MAX_PACKET = 65535;
 
 using Clock = std::chrono::high_resolution_clock;
 using ms_t  = std::chrono::duration<double, std::milli>;
+auto t0 = Clock::now();
 
 int main(int argc, char* argv[]) {
     const char* cid_env     = std::getenv("CLIENT_ID");
@@ -79,15 +80,12 @@ int main(int argc, char* argv[]) {
 
     std::vector<char> buf(MAX_PACKET);
     int counter = 0;
+    bool created = false;
 
     while (true) {
         std::string msg = "client " + client_id + " msg " + std::to_string(counter++);
 
-        const int MAX_RETRIES = 3;
-        int       retries    = 0;
-        bool      got_reply  = false;
-
-        while (retries++ < MAX_RETRIES) {
+        if (use_tcp) {
             auto t0 = Clock::now();
 
             if (::send(sockfd, msg.data(), msg.size(), 0) < 0) {
@@ -103,30 +101,43 @@ int main(int argc, char* argv[]) {
                 double latency_ms = ms_t(t1 - t0).count();
 
                 std::string reply(buf.data(), recvd);
-                std::cout << (use_tcp ? "[TCP]" : "[UDP]")
-                          << " echo: \"" << reply << "\""
-                          << "  (RTT=" << latency_ms << "ms)"
-                          << std::endl;
-                got_reply = true;
-                break;
+                std::cout << "[TCP]"
+                        << " echo: \"" << reply << "\""
+                        << "  (RTT=" << latency_ms << "ms)"
+                        << std::endl;
             }
+        } else {
+            t0 = Clock::now();
 
-            if (errno == ECONNREFUSED) {
-                std::cout << "ECONNREFUSED, retrying ("
-                          << retries << "/" << MAX_RETRIES 
-                          << ")..." << std::endl;
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-                continue;
+            if (::send(sockfd, msg.data(), msg.size(), 0) < 0) {
+                std::perror("send");
+                break;  
             }
+        }
+        if (!use_tcp && !created) {
+            created = true;
+            std::thread([sockfd]() {
+                std::vector<char> buf(MAX_PACKET);
+                while (true) {
+                    ssize_t recvd = ::recv(sockfd, buf.data(), buf.size(), 0);
+                    
+                    auto t1 = Clock::now();
+                    
+                    if (recvd > 0) {
+                        std::string reply(buf.data(), recvd);
+                        if (reply.find('c') != std::string::npos) {
+                            double latency_ms = ms_t(t1 - t0).count();
 
-            std::perror("recv");
-            break;
-    }
-
-        if (!got_reply) {
-            std::cerr << "No reply after " << MAX_RETRIES 
-                      << " attempts. Giving up." << std::endl;
-            break;
+                            std::cout << "[UDP]"
+                            << " echo: \"" << reply << "\""
+                            << "  (RTT=" << latency_ms << "ms)"
+                            << std::endl;
+                        } else {
+                            std::cout << "[UDP async] echo: \"" << reply << "\"" << std::endl;
+                        }
+                    }
+                }
+                }).detach();
         }
 
         std::this_thread::sleep_for(std::chrono::seconds(use_tcp ? 4 : 3));
