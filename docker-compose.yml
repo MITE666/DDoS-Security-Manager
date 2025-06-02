@@ -12,7 +12,6 @@ services:
     image: ddos_client_image
     cap_add:
       - NET_RAW
-    network_mode: "service:server"
     cpu_period: 100000
     cpu_quota: 10000
     mem_limit: 64m
@@ -22,6 +21,8 @@ services:
     environment:
       - ATTACKER_HOST=attacker
       - ATTACKER_API_PORT=8001
+    networks:
+      - ddos_net
 
   server:
     build: ./server
@@ -44,7 +45,8 @@ services:
       - "12345:12345/tcp"
       - "12345:12345/udp"
     cap_add:
-      - NET_ADMIN                     
+      - NET_ADMIN       
+      - NET_RAW              
     networks:
       - ddos_net
 

@@ -2,7 +2,10 @@ FROM gcc:latest
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      supervisor cmake make \
+      conntrack \
+      cmake \
+      make \
+      iptables \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -17,10 +20,11 @@ RUN mkdir -p security/build \
  && cd security/build \
  && cmake -S .. -B . \
  && make \
- && cp analyzer /app/analyzer
+ && cp dispatcher /app/dispatcher
 
-COPY supervisord.conf /etc/supervisor/conf.d/ddos.conf
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
 EXPOSE 12345
 
-CMD ["supervisord", "-c", "/etc/supervisor/conf.d/ddos.conf", "-n"]
+ENTRYPOINT [ "/app/start.sh" ]
