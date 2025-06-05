@@ -20,6 +20,10 @@ UDPFloodMitigator::UDPFloodMitigator(
         std::perror("UDPFloodMitigator: cannot create raw socket");
         std::exit(EXIT_FAILURE);
     }
+
+    std::cout << "[mit_udp_f] Starting UDP-flood sniffer on raw socket. "
+              << "Threshold=" << threshold_ << "packets/"
+              << window_ms_ << "ms" << std::endl;
 }
 
 UDPFloodMitigator::~UDPFloodMitigator() {
@@ -30,10 +34,7 @@ UDPFloodMitigator::~UDPFloodMitigator() {
 
 void UDPFloodMitigator::run() {
     char buffer[MAX_PACKET];
-    std::cout << "[mit_udp_f] Starting UDP-flood sniffer on raw socket.\n"
-              << "Threshold=" << threshold_ << "packets/"
-              << window_ms_ << "ms" << std::endl;
-
+    
     while (true) {
         ssize_t n = ::recvfrom(raw_socket_, buffer, MAX_PACKET, 0, nullptr, nullptr);
         if (n <= 0) {

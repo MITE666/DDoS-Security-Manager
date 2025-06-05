@@ -6,6 +6,10 @@ RUN apt-get update \
       cmake \
       make \
       iptables \
+      tcpdump \
+      net-tools \
+      iproute2 \
+      netcat-openbsd \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

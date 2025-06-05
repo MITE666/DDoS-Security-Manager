@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <iostream>
 #include <cstring>
 #include <mutex>
@@ -53,7 +54,7 @@ void udp_worker(int udp_sock) {
     }
 }
 
-void handle_tcp_client(int client_fd, sockaddr_in cli_addr) {
+void handle_tcp_proxy_client(int client_fd, sockaddr_in cli_addr) {
     char buf[MAX_PACKET];
 
     void* leak = std::malloc(LEAK_SIZE);
@@ -120,24 +121,81 @@ int main() {
         std::thread(udp_worker, s).detach();
     }
 
-    int tcp_sock = ::socket(AF_INET, SOCK_STREAM, 0);
-    {
-        sockaddr_in addr{};
-        addr.sin_family   = AF_INET;
-        addr.sin_addr.s_addr = INADDR_ANY;
-        addr.sin_port     = htons(PORT);
-        ::bind(tcp_sock, (sockaddr*)&addr, sizeof(addr));
+    int tcp_proxy_sock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (tcp_proxy_sock < 0) {
+        perror("socket()");
+        exit(1);
     }
-    ::listen(tcp_sock, 10);
 
-    while (true) {
-        sockaddr_in cli_addr{};
-        socklen_t   cli_len = sizeof(cli_addr);
-        int client_fd = ::accept(tcp_sock,
-                                 (sockaddr*)&cli_addr,
-                                 &cli_len);
-        if (client_fd < 0) continue;
-        std::thread(handle_tcp_client, client_fd, cli_addr).detach();
+    sockaddr_in proxy_addr{};
+    proxy_addr.sin_family = AF_INET;
+    proxy_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    proxy_addr.sin_port = htons(PROXY_PORT);
+
+    if (::bind(tcp_proxy_sock, reinterpret_cast<sockaddr*>(&proxy_addr), sizeof(proxy_addr)) < 0) {
+        perror("bind()");
+        exit(1);
+    }
+
+    {
+        char buf[MAX_PACKET];
+        sockaddr_in cli{};
+        socklen_t cli_len = sizeof(cli);
+
+        while (true) {
+            ssize_t len = ::recvfrom(
+                tcp_proxy_sock,
+                buf,
+                sizeof(buf),
+                0,
+                reinterpret_cast<sockaddr*>(&cli),
+                &cli_len
+            );
+            if (len <= 0) {
+                continue;
+            }
+
+            {
+                std::lock_guard<std::mutex> lk(cout_mtx);
+                std::cout << "[PROXY -> SERVER UDP] got " << len
+                          << " bytes from " << inet_ntoa(cli.sin_addr)
+                          << ":" << ntohs(cli.sin_port)
+                          << " -> \""
+                          << std::string(buf, buf + len)
+                          << "\"" << std::endl;
+            }
+
+            std::string packet(buf, buf + len);
+            auto newline_pos = packet.find('\n');
+            if (newline_pos == std::string::npos) {
+                std::lock_guard<std::mutex> lk(cout_mtx);
+                std::cerr << "[server] malformed packet (no newline), ignoring\n";
+                continue;
+            }
+
+            std::string payload = packet.substr(newline_pos + 1);
+
+            ::sendto(
+                tcp_proxy_sock,
+                payload.data(),
+                payload.size(),
+                0,
+                reinterpret_cast<sockaddr*>(&cli),
+                cli_len
+            );
+
+            {
+                std::lock_guard<std::mutex> lk(cout_mtx);
+                std::cout << "[server] echoed back " << payload.size()
+                          << " bytes to " << inet_ntoa(cli.sin_addr)
+                          << ":" << ntohs(cli.sin_port) << std::endl;
+            }
+        }
+    }
+
+    ::close(tcp_proxy_sock);
+    for (int s : udp_socks) {
+        ::close(s);
     }
 
     return EXIT_SUCCESS;

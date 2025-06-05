@@ -17,7 +17,11 @@ using Clock = std::chrono::high_resolution_clock;
 using ms_t  = std::chrono::duration<double, std::milli>;
 auto t0 = Clock::now();
 
+char ipstr[INET_ADDRSTRLEN];
+
 int main(int argc, char* argv[]) {
+    std::this_thread::sleep_for(std::chrono::seconds(15));
+
     const char* cid_env     = std::getenv("CLIENT_ID");
     std::string client_id   = cid_env ? cid_env : "unknown";
 
@@ -49,6 +53,17 @@ int main(int argc, char* argv[]) {
     int sockfd = -1;
 
     for (auto p = res; p; p = p->ai_next) {
+        void* addr_ptr = nullptr;
+        if (p->ai_family == AF_INET) {  
+            struct sockaddr_in* ipv4 = (struct sockaddr_in*)p->ai_addr;
+            addr_ptr = &ipv4->sin_addr;
+        } else {
+            continue; 
+        }
+
+        inet_ntop(p->ai_family, addr_ptr, ipstr, sizeof(ipstr));
+        std::cout << "Trying " << ipstr << std::endl;
+
         sockfd = ::socket(p->ai_family, p->ai_socktype, p->ai_protocol);
 
         if (sockfd < 0) continue;        

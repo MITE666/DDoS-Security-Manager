@@ -13,8 +13,12 @@ include_directories(
 add_executable(dispatcher
     src/mit_udp_f.cpp
     src/mit_tcp_cf.cpp
+    src/mit_syn_f.cpp   
     src/dispatcher.cpp
 )
 
 find_package(Threads REQUIRED)
-target_link_libraries(dispatcher PRIVATE Threads::Threads)
+target_link_libraries(dispatcher 
+    PRIVATE Threads::Threads
+            crypto
+)
