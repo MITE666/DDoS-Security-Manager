@@ -1,5 +1,5 @@
 #include "../headers/mit_udp_f.hpp"
-#include "../headers/mit_tcp_cf.hpp"
+#include "../headers/mit_tcpc_sr_f.hpp"
 #include "../headers/mit_syn_f.hpp"
 #include <iostream>
 #include <thread>
@@ -7,8 +7,9 @@
 int main() {
     constexpr std::size_t UDP_TH        = 50;
     constexpr std::size_t UDP_WIN_MS    = 1000;
+    constexpr std::size_t MAX_PAYLOAD   = 1500;
 
-    UDPFloodMitigator udp_mit{UDP_TH, UDP_WIN_MS};
+    UDPFloodMitigator udp_mit{UDP_TH, UDP_WIN_MS, MAX_PAYLOAD};
     std::thread udp_th([&](){ udp_mit.run(); });  
 
     constexpr std::size_t CONN_IDLE_TH  = 10;

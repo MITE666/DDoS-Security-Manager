@@ -14,45 +14,87 @@
 
 std::mutex cout_mtx;
 
-void udp_worker(int udp_sock) {
-    char buf[MAX_PACKET];
-    sockaddr_in cli{};
-    socklen_t clen = sizeof(cli);
+auto handle_udp_forwarder = [](){
+    int recv_sock = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (recv_sock < 0) {
+        perror("udp_forwarder socket");
+        return;
+    }
 
+    sockaddr_in bind_addr{};
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_port   = htons(UDP_PROXY_PORT);
+    inet_pton(AF_INET, "127.0.0.1", &bind_addr.sin_addr);
+    if (::bind(recv_sock, reinterpret_cast<sockaddr*>(&bind_addr), sizeof(bind_addr)) < 0) {
+        perror("udp_forwarder bind");
+        ::close(recv_sock);
+        return;
+    }
+
+    int send_sock = ::socket(AF_INET, SOCK_DGRAM, 0);
+
+    int on = 1;
+    setsockopt(send_sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+
+    sockaddr_in send_addr{};
+    send_addr.sin_family      = AF_INET;
+    send_addr.sin_port        = htons(12345);
+    send_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (::bind(send_sock, (sockaddr*)&send_addr, sizeof(send_addr)) < 0) {
+        perror("bind send_sock");
+        exit(1);
+    }
+
+    char buf[MAX_PACKET];
     while (true) {
-        ssize_t len = ::recvfrom(
-            udp_sock,
-            buf,
-            sizeof(buf),
-            0,
-            reinterpret_cast<sockaddr*>(&cli),
-            &clen
-        );
+        ssize_t len = ::recvfrom(recv_sock, buf, sizeof(buf), 0, nullptr, nullptr);
         if (len <= 0) continue;
 
-        {
-            std::lock_guard<std::mutex> lk(cout_mtx);
-            std::cout << "[UDP] got " << len
-                      << " bytes from " << inet_ntoa(cli.sin_addr)
-                      << ":" << ntohs(cli.sin_port) 
-                      << " -> \""
-                      << std::string(buf, buf + len)
-                      << "\"" << std::endl; 
+        std::string packet(buf, buf + len);
+        auto nl = packet.find('\n');
+        if (nl == std::string::npos) {
+            std::cerr << "[udp_forwarder] no header newline, dropping" << std::endl;
+            continue;
         }
 
-        if (len * 2 <= 65507) {
-            std::vector<char> dbl;
-            dbl.reserve(len*2);
-            dbl.insert(dbl.end(), buf, buf+len);
-            dbl.insert(dbl.end(), buf, buf+len);
-            ::sendto(udp_sock, dbl.data(), static_cast<int>(dbl.size()),
-                     0, reinterpret_cast<sockaddr*>(&cli), clen);
-        } else {
-            ::sendto(udp_sock, buf, len,
-                     0, reinterpret_cast<sockaddr*>(&cli), clen);
+        std::string header = packet.substr(0, nl);
+        std::string payload = packet.substr(nl + 1);
+
+        std::string from_prefix = "FROM ";
+        if (header.rfind(from_prefix, 0) != 0) {
+            std::cerr << "[udp_forwarder] bad header prefix, dropping\n";
+            continue;
+        }
+        std::string ip_and_port = header.substr(from_prefix.size());
+        auto colon = ip_and_port.find(':');
+        if (colon == std::string::npos) {
+            std::cerr << "[udp_forwarder] bad header format, dropping\n";
+            continue;
+        }
+        std::string ip_str   = ip_and_port.substr(0, colon);
+        int         port     = std::stoi(ip_and_port.substr(colon + 1));
+
+        sockaddr_in dest{};
+        dest.sin_family = AF_INET;
+        dest.sin_port   = htons(port);
+        inet_pton(AF_INET, ip_str.c_str(), &dest.sin_addr);
+
+        ssize_t sent = ::sendto(
+            send_sock,
+            payload.data(),
+            payload.size(),
+            0,
+            reinterpret_cast<sockaddr*>(&dest),
+            sizeof(dest)
+        );
+        if (sent < 0) {
+            perror("[udp_forwarder] sendto");
         }
     }
-}
+
+    ::close(recv_sock);
+    ::close(send_sock);
+};
 
 void handle_tcp_proxy_client(int client_fd, sockaddr_in cli_addr) {
     char buf[MAX_PACKET];
@@ -92,34 +134,7 @@ void handle_tcp_proxy_client(int client_fd, sockaddr_in cli_addr) {
 }
 
 int main() {
-    constexpr int M = 14; 
-    std::vector<int> udp_socks;
-    udp_socks.reserve(M);
-
-    for (int i = 0; i < M; ++i) {
-        int s = ::socket(AF_INET, SOCK_DGRAM, 0);
-        int one = 1;
-        setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
-
-        sockaddr_in addr{};
-        addr.sin_family   = AF_INET;
-        addr.sin_addr.s_addr = INADDR_ANY;
-        addr.sin_port     = htons(PORT);
-
-        if (::bind(s, (sockaddr*)&addr, sizeof(addr)) < 0) {
-            perror("udp bind");
-            exit(1);
-        }
-
-        int rsz = 4 * 1024 * 1024;
-        setsockopt(s, SOL_SOCKET, SO_RCVBUF, &rsz, sizeof(rsz));
-
-        udp_socks.push_back(s);
-    }
-
-    for (int s : udp_socks) {
-        std::thread(udp_worker, s).detach();
-    }
+    std::thread(handle_udp_forwarder).detach();
 
     int tcp_proxy_sock = ::socket(AF_INET, SOCK_DGRAM, 0);
     if (tcp_proxy_sock < 0) {
@@ -169,7 +184,7 @@ int main() {
             auto newline_pos = packet.find('\n');
             if (newline_pos == std::string::npos) {
                 std::lock_guard<std::mutex> lk(cout_mtx);
-                std::cerr << "[server] malformed packet (no newline), ignoring\n";
+                std::cerr << "[server] malformed packet (no newline), ignoring" << std::endl;
                 continue;
             }
 
@@ -194,9 +209,6 @@ int main() {
     }
 
     ::close(tcp_proxy_sock);
-    for (int s : udp_socks) {
-        ::close(s);
-    }
 
     return EXIT_SUCCESS;
 }

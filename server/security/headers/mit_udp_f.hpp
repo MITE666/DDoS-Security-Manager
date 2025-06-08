@@ -16,7 +16,7 @@
 
 class UDPFloodMitigator {
 public:
-    UDPFloodMitigator(std::size_t threshold, std::size_t window_ms);
+    UDPFloodMitigator(std::size_t threshold, std::size_t window_ms, std::size_t max_payload);
     ~UDPFloodMitigator();
 
     void run();
@@ -25,6 +25,7 @@ private:
     int         raw_socket_;
     std::size_t threshold_;
     std::size_t window_ms_;
+    std::size_t max_payload_;
 
     using Clock = std::chrono::steady_clock;
 
@@ -37,7 +38,6 @@ private:
     std::unordered_set<std::string>                 already_blocked_;
     std::mutex                                      mtx_;
 
-    void process_one_packet(const char* buffer, ssize_t len);
     void block_source(const std::string& src_ip);
     static std::string ip_to_string(uint32_t ip_network_order);
 };

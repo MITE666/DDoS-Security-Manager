@@ -12,7 +12,7 @@ include_directories(
 
 add_executable(dispatcher
     src/mit_udp_f.cpp
-    src/mit_tcp_cf.cpp
+    src/mit_tcpc_sr_f.cpp
     src/mit_syn_f.cpp   
     src/dispatcher.cpp
 )
