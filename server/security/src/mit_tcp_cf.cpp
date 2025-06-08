@@ -9,6 +9,8 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <ctime>
+#include <set>
 
 TCPConnFloodMitigator::TCPConnFloodMitigator(
     size_t idle_threshold_sec,
@@ -78,66 +80,55 @@ void TCPConnFloodMitigator::sniff_for_data()
 
 void TCPConnFloodMitigator::scan_and_check_idle()
 {
-    auto now = Clock::now();
+    std::time_t now = std::time(nullptr);
 
-    auto conns = list_established_conns();
+    std::unordered_map<std::string, std::time_t> conn_map;
 
-    std::unordered_map<std::string,std::size_t> per_ip_count;
-    for (auto& kv : conns) {
-        per_ip_count[kv.second] += 1;
+    std::ifstream ifs(CONN_LOG_PATH);
+    std::string line;
+
+    while (std::getline(ifs, line)) {
+        std::istringstream iss(line);
+        std::string key;
+        std::time_t ts;
+        if (iss >> key >> ts) {
+            conn_map[key] = ts;
+        }
     }
 
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
+    std::set<std::string> ips_to_ban;
+    std::unordered_map<std::string, std::size_t> per_ip_count;
 
-        std::vector<std::string> keys_to_erase;
-        for (auto& kv : last_activity_) {
-            const std::string& key = kv.first;
-            auto it_conn = conns.find(key);
+    for (auto& [key, last_ts] : conn_map) {
+        auto pos = key.find(':');
+        if (pos == std::string::npos) continue;
+        std::string ip = key.substr(0, pos);
+        
+        std::size_t idle_s = static_cast<std::size_t>(now - last_ts);
+        
+        if (idle_s > idle_threshold_sec_) {
+            ips_to_ban.insert(ip);
+            continue;
+        } 
+        per_ip_count[ip]++;
+    }
 
-            if (it_conn == conns.end()) {
-                keys_to_erase.push_back(key);
-                continue;
-            }
-
-            auto last_ts = kv.second;
-            auto idle_s = std::chrono::duration_cast<std::chrono::seconds>(now - last_ts).count();
-            const std::string& src_ip = it_conn->second;
-
-            if (static_cast<std::size_t>(idle_s) > idle_threshold_sec_) {
-                if (!banned_ips_.count(src_ip)) {
-                    std::cout << "[mit_tcp_cf] IP " << src_ip
-                              << " has an idle socket (idle " << idle_s << "s) -> BAN" << std::endl;
-                    ban_ip(src_ip);
-                }
-                keys_to_erase.push_back(key);
-                continue;
-            }
+    for (auto& [ip, count] : per_ip_count) {
+        if (count > conn_threshold_) {
+            ips_to_ban.insert(ip);
         }
-        for (auto& k : keys_to_erase) {
-            last_activity_.erase(k);
-        }
+    }
 
-        for (auto& kv : per_ip_count) {
-            const std::string& ip    = kv.first;
-            std::size_t         count = kv.second;
-            if (count > conn_threshold_) {
-                if (!banned_ips_.count(ip)) {
-                    std::cout << "[mit_tcp_cf] IP " << ip
-                              << " has " << count
-                              << " ESTABLISHED connections -> BAN" << std::endl;
-                    ban_ip(ip);
-                }
-            }
-        }
+     for (auto& ip : ips_to_ban) {
+        if (banned_ips_.count(ip)) continue;
+        std::cout << "[mit_tcp_cf] BANNING IP " << ip << std::endl;
+        ban_ip(ip);
+        banned_ips_.insert(ip);
     }
 }
 
-
-
-void TCPConnFloodMitigator::ban_ip(const std::string& src_ip)
-{
-    std::string cmd = "iptables -A INPUT -p tcp -s " + src_ip
+void TCPConnFloodMitigator::ban_ip(const std::string& src_ip) {
+    std::string cmd = "iptables -t raw -I PREROUTING -p tcp -s " + src_ip
                     + " --dport " + std::to_string(PORT) + " -j DROP";
 
     int ret = std::system(cmd.c_str());
@@ -149,66 +140,8 @@ void TCPConnFloodMitigator::ban_ip(const std::string& src_ip)
                   << src_ip << " (exit " << ret << ")" << std::endl;
     }
 
-    std::string flush_cmd = "conntrack -D -p tcp -s " + src_ip
-                        + " --dport " + std::to_string(PORT) + " >/dev/null 2>&1";
-    int r2 = std::system(flush_cmd.c_str());
-    if (r2 != 0) {
-        std::cerr << "[mit_tcp_cf] WARNING: conntrack delete failed for " << src_ip 
-                << " (exit " << r2 << ")" << std::endl;
-    } else {
-        std::cout << "[mit_tcp_cf] conntrack state removed for " << src_ip << std::endl;
-    }
-}
-
-std::unordered_map<std::string, std::string>
-TCPConnFloodMitigator::list_established_conns()
-{
-    std::unordered_map<std::string, std::string> result;
-    std::ifstream tcpf("/proc/net/tcp");
-    if (!tcpf.is_open()) {
-        std::cerr << "[mit_tcp_cf] ERROR: cannot open /proc/net/tcp\n";
-        return result;
-    }
-
-    std::string line;
-    std::getline(tcpf, line);  
-
-    while (std::getline(tcpf, line)) {
-        std::istringstream iss(line);
-        std::string sl, local, rem, st;
-        if (!(iss >> sl >> local >> rem >> st)) {
-            continue;  
-        }
-        if (st != "01") {
-            continue;  
-        }
-
-        auto pos1 = local.find(':');
-        auto hex_lport = local.substr(pos1 + 1);
-        uint16_t lport = static_cast<uint16_t>(std::stoul(hex_lport, nullptr, 16));
-        if (lport != PORT) {
-            continue;  
-        }
-
-        auto pos2 = rem.find(':');
-        auto hex_rip   = rem.substr(0, pos2);
-        auto hex_rport = rem.substr(pos2 + 1);
-        uint16_t rport = static_cast<uint16_t>(std::stoul(hex_rport, nullptr, 16));
-        unsigned long ipn = std::stoul(hex_rip, nullptr, 16);
-
-        struct in_addr a;
-        a.s_addr = static_cast<uint32_t>(ipn);  
-        char buf[INET_ADDRSTRLEN];
-        if (::inet_ntop(AF_INET, &a, buf, INET_ADDRSTRLEN) == nullptr) {
-            continue;  
-        }
-        std::string rip(buf);
-
-        std::string key = conn_key(rip, rport);
-        result.emplace(key, rip);
-    }
-
-    return result;
+    std::ofstream ofs(BANNED_IPS_PATH, std::ios::app);
+    ofs << src_ip << "\n";
 }
 
 std::string TCPConnFloodMitigator::conn_key(const std::string& src_ip, uint16_t src_port)

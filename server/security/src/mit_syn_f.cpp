@@ -7,6 +7,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <fstream>
+#include <ctime>
+#include <cstdlib>
+#include <cstdio>
 
 TCPSYNCookieProxy::TCPSYNCookieProxy(
     const std::string& secret_key,
@@ -72,6 +76,8 @@ TCPSYNCookieProxy::~TCPSYNCookieProxy() {
 }
 
 void TCPSYNCookieProxy::run() {
+    std::thread(&TCPSYNCookieProxy::ban_reload_loop, this).detach();
+
     std::thread sniffer([&](){ sniff_for_syns(); });
     std::thread logger([&](){ periodic_logger(); });
 
@@ -104,21 +110,40 @@ void TCPSYNCookieProxy::sniff_for_syns() {
         std::string src_ip = ip_to_string(iph->saddr);
         std::string dst_ip = ip_to_string(iph->daddr);
 
+        {
+            std::lock_guard<std::mutex> ban_lk(ban_mtx_);
+            if (banned_ips_.count(src_ip)) {
+                promoted_flows_.erase({src_ip, srcp});
+                remove_conn_activity(src_ip, srcp);
+                continue;
+            }
+        }
+
         if (promoted_flows_.count({src_ip, srcp}) > 0) {
-        if (th->fin == 1 || th->rst == 1) {
+            if (th->fin == 1 || th->rst == 1) {
                 std::cout << "[mit_syn_f] Client " 
                             << src_ip << ":" << srcp 
                             << (th->fin ? " sent FIN" : " sent RST")
                             << " – removing from promoted_flows_" << std::endl;
                 promoted_flows_.erase({src_ip, srcp});
+                {
+                    std::lock_guard<std::mutex> lock(cookie_mtx_);
+                    remove_conn_activity(src_ip, srcp);
+                }
                 continue;
             }
+            
 
             std::size_t tcp_hlen = th->doff * 4;
             std::size_t full_hdr = ip_hlen + tcp_hlen;
             if (static_cast<size_t>(len) > full_hdr) {
                 size_t payload_len = len - full_hdr;
                 char* payload_ptr  = buffer + full_hdr;
+
+                {
+                    std::lock_guard<std::mutex> cookie_lk(cookie_mtx_);
+                    update_conn_activity(src_ip, srcp);
+                }
 
                 std::cout << "[mit_syn_f] DATA from promoted "
                             << src_ip << ":" << srcp
@@ -178,7 +203,8 @@ void TCPSYNCookieProxy::sniff_for_syns() {
                     dst_ip,
                     th,
                     udp_resp,
-                    static_cast<size_t>(rlen)
+                    static_cast<size_t>(rlen),
+                    static_cast<uint32_t>(payload_len)
                 );
             }
             continue;
@@ -207,22 +233,23 @@ void TCPSYNCookieProxy::sniff_for_syns() {
         if (!is_pure_ack) continue;
 
         uint32_t recv_ack = ntohl(th->ack_seq);
-        std::cout << "recv_ack:" << recv_ack << std::endl;
 
         auto now = Clock::now();
         uint64_t ts = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count() / window_secs_;
 
         uint32_t cookie1 = compute_cookie(src_ip, srcp, ts);
-        std::cout << "cookie1:" << cookie1 << std::endl;
 
         uint32_t cookie0 = compute_cookie(src_ip, srcp, ts - 1);
-        std::cout << "cookie0:" << cookie0 << std::endl;
 
         uint32_t ack_host = recv_ack - 1;
 
         if (ack_host == cookie1 || ack_host == cookie0) {
             promoted_counter_.fetch_add(1, std::memory_order_relaxed);
             promoted_flows_.emplace(src_ip, srcp);
+            {
+                std::lock_guard<std::mutex> cookie_lk(cookie_mtx_);
+                update_conn_activity(src_ip, srcp);
+           }
         }
     }
 }
@@ -239,10 +266,10 @@ void TCPSYNCookieProxy::periodic_logger()
             dropped = count - promoted;
         }
 
-        std::cout << "[mit_syn_f] Last " << window_secs_ << "s: "
-                  << count << " SYN(s) seen, "
-                  << promoted << " promoted, "
-                  << dropped << " dropped" << std::endl;
+        // std::cout << "[mit_syn_f] Last " << window_secs_ << "s: "
+        //           << count << " SYN(s) seen, "
+        //           << promoted << " promoted, "
+        //           << dropped << " dropped" << std::endl;
     }
 }
 
@@ -315,6 +342,8 @@ void TCPSYNCookieProxy::send_synack(
     th->check       = 0;
     th->urg_ptr     = 0;
 
+    next_server_seq_[{src_ip, src_port}] = cookie + 1;
+
     struct {
         uint32_t src_addr;
         uint32_t dst_addr;
@@ -372,7 +401,8 @@ void TCPSYNCookieProxy::forge_and_send_tcp_payload(
     const std::string& server_ip,
     const tcphdr*      th,
     const char*        payload_ptr,
-    size_t             payload_len
+    size_t             payload_len,
+    uint32_t           client_payload_len
 ) {
     size_t packet_len = 20 + 20 + payload_len;
     std::vector<unsigned char> packet(packet_len);
@@ -406,13 +436,14 @@ void TCPSYNCookieProxy::forge_and_send_tcp_payload(
     new_th->source   = htons(PORT);
     new_th->dest     = htons(client_port);
 
-    uint32_t seq_n = ntohl(th->ack_seq);
+    uint32_t seq_n = next_server_seq_[{client_ip, client_port}];
     new_th->seq     = htonl(seq_n);
 
     uint32_t orig_seq = ntohl(th->seq);
-    uint32_t client_payload_len = ntohs(iph->tot_len) - (th->doff * 4) - (iph->ihl * 4);
     uint32_t ack_n = orig_seq + client_payload_len;
     new_th->ack_seq = htonl(ack_n);
+
+    next_server_seq_[{client_ip, client_port}] = seq_n + static_cast<uint32_t>(payload_len);
 
     new_th->doff    = 5;       
     new_th->syn     = 0;
@@ -459,7 +490,7 @@ void TCPSYNCookieProxy::forge_and_send_tcp_payload(
     }
     if (ps_len & 1) {
         uint8_t last = checksum_buf[ps_len - 1];
-        sum += static_cast<uint32_t>(ntohs(static_cast<uint16_t>(last << 8)));
+        sum += static_cast<uint32_t>(last) << 8;
         if (sum & 0xFFFF0000) {
             sum = (sum & 0xFFFF) + 1;
         }
@@ -494,4 +525,122 @@ std::string TCPSYNCookieProxy::ip_to_string(uint32_t ip_network_order) {
         return "<invalid-ip>";
     }
     return std::string(buf);
+}
+
+void TCPSYNCookieProxy::update_conn_activity(const std::string& ip, uint16_t port) {
+    std::time_t now = std::time(nullptr);
+    std::string key = ip + ":" + std::to_string(port);
+
+    std::map<std::string, std::time_t> m;
+
+    std::ifstream ifs(CONN_LOG_PATH);
+    std::string line;
+    while (std::getline(ifs, line)) {
+        std::istringstream iss(line);
+        std::string existing_key;
+        std::time_t ts;
+        if (iss >> existing_key >> ts) {
+            m[existing_key] = ts;
+        }
+    }
+
+    m[key] = now;
+    std::string tmp = std::string(CONN_LOG_PATH) + ".tmp";
+
+    std::ofstream ofs(tmp, std::ios::trunc);
+    for (auto& kv : m) {
+        ofs << kv.first << " " << kv.second << "\n";
+    }
+
+    std::rename(tmp.c_str(), CONN_LOG_PATH);
+}
+
+void TCPSYNCookieProxy::remove_conn_activity(const std::string& ip, uint16_t port) {
+    std::string key = ip + ":" + std::to_string(port);
+
+    std::map<std::string, std::time_t> m;
+
+    std::ifstream ifs(CONN_LOG_PATH);
+    std::string line;
+    while (std::getline(ifs, line)) {
+        std::istringstream iss(line);
+        std::string existing_key;
+        std::time_t ts;
+        if (iss >> existing_key >> ts) {
+            m[existing_key] = ts;
+        }
+    }
+
+    m.erase(key);
+
+    std::string tmp = std::string(CONN_LOG_PATH) + ".tmp";
+    {
+        std::ofstream ofs(tmp, std::ios::trunc);
+        for (auto& kv : m) {
+            ofs << kv.first << " " << kv.second << "\n";
+        }
+    }
+    std::rename(tmp.c_str(), CONN_LOG_PATH);
+}
+
+void TCPSYNCookieProxy::remove_conn_activity_for_ip(const std::string& ip) {
+    std::map<std::string, std::time_t> m;
+    {
+        std::ifstream ifs(CONN_LOG_PATH);
+        std::string line;
+        while (std::getline(ifs, line)) {
+            std::istringstream iss(line);
+            std::string key; std::time_t ts;
+            if (iss >> key >> ts) {
+                m[key] = ts;
+            }
+        }
+    }
+    auto prefix = ip + ":";
+    for (auto it = m.begin(); it != m.end();) {
+        if (it->first.rfind(prefix, 0) == 0) {
+            it = m.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    std::string tmp = std::string(CONN_LOG_PATH) + ".tmp";
+    {
+        std::ofstream ofs(tmp, std::ios::trunc);
+        for (auto& kv : m) {
+            ofs << kv.first << " " << kv.second << "\n";
+        }
+    }
+    std::rename(tmp.c_str(), CONN_LOG_PATH);
+}
+
+void TCPSYNCookieProxy::reload_banned_ips() {
+    std::set<std::string> new_bans;
+    std::ifstream ifs(BANNED_IPS_PATH);
+    std::string ip;
+    while (std::getline(ifs, ip)) {
+        if (!ip.empty()) new_bans.insert(ip);
+    }
+
+    for (auto const& ip : new_bans) {
+        auto [it, inserted] = banned_ips_.insert(ip);
+        if (inserted) {
+            remove_conn_activity_for_ip(ip);
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(ban_mtx_);
+        banned_ips_.swap(new_bans);
+    }
+}
+
+void TCPSYNCookieProxy::ban_reload_loop() {
+    while (true) {
+        reload_banned_ips();
+        for (auto const& ip : banned_ips_) {
+            remove_conn_activity_for_ip(ip);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
 }

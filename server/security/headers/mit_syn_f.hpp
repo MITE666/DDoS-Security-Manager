@@ -38,6 +38,11 @@ private:
     const std::size_t           window_secs_;
 
     std::set<std::pair<std::string, uint16_t>> promoted_flows_;
+    
+    std::set<std::string>                      banned_ips_;
+    std::mutex                                 ban_mtx_;
+
+    std::map<std::pair<std::string, uint16_t>, uint32_t> next_server_seq_;
 
     using Clock = std::chrono::steady_clock;
 
@@ -50,5 +55,10 @@ private:
     void send_synack(const std::string& src_ip, uint16_t src_port, uint32_t cookie, uint32_t client_isn, const std::string& dst_ip);
     uint32_t compute_cookie(const std::string& src_ip, uint16_t src_port, uint64_t time_slice);
     static std::string ip_to_string(uint32_t ip_network_order);
-    static void forge_and_send_tcp_payload(int send_sock, const std::string& client_ip, uint16_t client_port, const std::string& server_ip, const tcphdr* th, const char* payload_ptr, size_t payload_len);
+    void forge_and_send_tcp_payload(int send_sock, const std::string& client_ip, uint16_t client_port, const std::string& server_ip, const tcphdr* th, const char* payload_ptr, size_t payload_len, uint32_t client_payload_len);
+    static void update_conn_activity(const std::string& ip, uint16_t port);
+    static void remove_conn_activity(const std::string& ip, uint16_t port);
+    static void remove_conn_activity_for_ip(const std::string& ip);
+    void reload_banned_ips();
+    void ban_reload_loop();
 };

@@ -14,6 +14,9 @@ trap shutdown SIGTERM SIGINT
 
 mkdir -p /app/logs
 
+touch /app/logs/conn_activity.log
+touch /app/logs/banned_ips.txt
+
 echo "[start.sh] Starting dispatcher…" >> /app/logs/startup.log
 /app/dispatcher \
     > /app/logs/dispatcher.log \

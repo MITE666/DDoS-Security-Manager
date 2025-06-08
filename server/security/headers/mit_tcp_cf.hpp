@@ -41,7 +41,5 @@ private:
     void scan_and_check_idle();
     void ban_ip(const std::string& src_ip);
 
-    std::unordered_map<std::string, std::string> list_established_conns();
-
     static std::string ip_to_string(uint32_t ip_network_order);
 };
