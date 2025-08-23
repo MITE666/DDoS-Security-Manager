@@ -22,6 +22,11 @@ public:
     void run();
 
 private:
+    enum Flag {
+        MANY,
+        BIG
+    };
+
     int         raw_socket_;
     std::size_t threshold_;
     std::size_t window_ms_;
@@ -38,6 +43,6 @@ private:
     std::unordered_set<std::string>                 already_blocked_;
     std::mutex                                      mtx_;
 
-    void block_source(const std::string& src_ip);
+    void block_source(const std::string& src_ip, Flag f);
     static std::string ip_to_string(uint32_t ip_network_order);
 };

@@ -23,6 +23,11 @@ public:
     void run();
 
 private:
+    enum Flag {
+        SLOW_READ,
+        FLOOD
+    };
+
     int raw_sock_;
     size_t idle_threshold_sec_;
     size_t conn_threshold_;

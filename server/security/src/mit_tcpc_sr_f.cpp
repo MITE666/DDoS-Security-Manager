@@ -25,7 +25,7 @@ TCPConnFloodMitigator::TCPConnFloodMitigator(
         std::perror("TCPConnFloodMitigator: cannot create raw socket");
         std::exit(EXIT_FAILURE);
     }
-    std::cout << "[mit_tcp_cf] Raw TCP socket opened. idle_thresh="
+    std::cout << "[mit_tcp] Raw TCP socket opened. idle_thresh="
               << idle_threshold_sec_
               << "s, conn_thresh=" << conn_threshold_   
               << "s" << std::endl;
@@ -96,7 +96,7 @@ void TCPConnFloodMitigator::scan_and_check_idle()
         }
     }
 
-    std::set<std::string> ips_to_ban;
+    std::set<std::pair<std::string, Flag>> ips_to_ban;
     std::unordered_map<std::string, std::size_t> per_ip_count;
 
     for (auto& [key, last_ts] : conn_map) {
@@ -107,7 +107,7 @@ void TCPConnFloodMitigator::scan_and_check_idle()
         std::size_t idle_s = static_cast<std::size_t>(now - last_ts);
         
         if (idle_s > idle_threshold_sec_) {
-            ips_to_ban.insert(ip);
+            ips_to_ban.insert({ip, SLOW_READ});
             continue;
         } 
         per_ip_count[ip]++;
@@ -115,15 +115,15 @@ void TCPConnFloodMitigator::scan_and_check_idle()
 
     for (auto& [ip, count] : per_ip_count) {
         if (count > conn_threshold_) {
-            ips_to_ban.insert(ip);
+            ips_to_ban.insert({ip, FLOOD});
         }
     }
 
-     for (auto& ip : ips_to_ban) {
-        if (banned_ips_.count(ip)) continue;
-        std::cout << "[mit_tcp_cf] BANNING IP " << ip << std::endl;
-        ban_ip(ip);
-        banned_ips_.insert(ip);
+     for (auto& p : ips_to_ban) {
+        if (banned_ips_.count(p.first)) continue;
+        std::cout << "[mit_tcp] BANNING IP " << p.first << ((p.second == SLOW_READ) ? " (slow read)" : " (flood)") << std::endl;
+        ban_ip(p.first);
+        banned_ips_.insert(p.first);
     }
 }
 

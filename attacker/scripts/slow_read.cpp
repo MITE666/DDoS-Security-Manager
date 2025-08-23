@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
     if (getaddrinfo(target, port, &hints, &res) != 0) return 1;
 
 
-    int n_clients = 1000;
+    int n_clients = 19;
     std::vector<int> conns;
     conns.reserve(n_clients);
 

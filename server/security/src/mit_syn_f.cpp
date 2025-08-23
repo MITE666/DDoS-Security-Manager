@@ -145,10 +145,6 @@ void TCPSYNCookieProxy::sniff_for_syns() {
                     update_conn_activity(src_ip, srcp);
                 }
 
-                std::cout << "[mit_syn_f] DATA from promoted "
-                            << src_ip << ":" << srcp
-                            << " - " << payload_len << " bytes" << std::endl;
-
                 std::ostringstream oss;
                 oss << "FROM " << src_ip << ":" << srcp << "\n";
                 std::string header = oss.str();
@@ -192,9 +188,6 @@ void TCPSYNCookieProxy::sniff_for_syns() {
                               << src_ip << ":" << srcp << std::endl;
                     continue;
                 }
-
-                std::cout << "[mit_syn_f] UDP response "
-                            << rlen << " bytes back from server" << std::endl;
 
                 forge_and_send_tcp_payload(
                     send_sock_,
@@ -266,10 +259,10 @@ void TCPSYNCookieProxy::periodic_logger()
             dropped = count - promoted;
         }
 
-        // std::cout << "[mit_syn_f] Last " << window_secs_ << "s: "
-        //           << count << " SYN(s) seen, "
-        //           << promoted << " promoted, "
-        //           << dropped << " dropped" << std::endl;
+        std::cout << "[mit_syn_f] Last " << window_secs_ << "s: "
+                  << count << " SYN(s) seen, "
+                  << promoted << " promoted, "
+                  << dropped << " dropped" << std::endl;
     }
 }
 

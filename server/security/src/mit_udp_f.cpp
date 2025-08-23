@@ -74,16 +74,15 @@ void UDPFloodMitigator::run() {
             info.count++;
             if ( info.count > threshold_ ) {
                 if (already_blocked_.insert(src_ip).second) {
-                    block_source(src_ip);
+                    block_source(src_ip, MANY);
                 }
-                std::cout << "TOO MANY PER WINDOW" << std::endl;
                 continue; 
             }
             if (ntohs(udph->len) - sizeof(udphdr) > max_payload_) {
                 if (already_blocked_.insert(src_ip).second) {
-                    block_source(src_ip);
+                    block_source(src_ip, BIG);
                 }
-                std::cout << "TOO BIG OF A PACKET" << std::endl;
+                std::cout << "[mit_udp_f] TOO BIG OF A PACKET from " << src_ip << std::endl;
                 continue;
             }
         }
@@ -101,7 +100,7 @@ void UDPFloodMitigator::run() {
     }
 }
 
-void UDPFloodMitigator::block_source(const std::string& src_ip) {
+void UDPFloodMitigator::block_source(const std::string& src_ip, Flag f) {
     std::string cmd = "iptables -A INPUT -p udp -s " + src_ip
                     + " --dport " + std::to_string(PORT)
                     + " -j DROP";
@@ -110,7 +109,7 @@ void UDPFloodMitigator::block_source(const std::string& src_ip) {
     if (ret != 0) {
         std::cerr << "[mit_udp_f] WARNING: iptables command failed with exit code " << ret << std::endl;
     } else {
-        std::cout << "[mit_udp_f] iptables DROP rule added for " << src_ip << std::endl;
+        std::cout << "[mit_udp_f] iptables DROP rule added for " << src_ip << ((f == MANY) ? " (too many)" : " (too big)") << std::endl;
     }
 }
 

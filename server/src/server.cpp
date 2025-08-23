@@ -79,6 +79,16 @@ auto handle_udp_forwarder = [](){
         dest.sin_port   = htons(port);
         inet_pton(AF_INET, ip_str.c_str(), &dest.sin_addr);
 
+        {
+            std::lock_guard<std::mutex> lk(cout_mtx);
+            std::cout << "[UDP] got " << len
+                        << " bytes from " << inet_ntoa(dest.sin_addr)
+                        << ":" << ntohs(dest.sin_port)
+                        << " -> \""
+                        << std::string(buf, buf + len)
+                        << "\"" << std::endl;
+        }
+
         ssize_t sent = ::sendto(
             send_sock,
             payload.data(),
@@ -198,13 +208,6 @@ int main() {
                 reinterpret_cast<sockaddr*>(&cli),
                 cli_len
             );
-
-            {
-                std::lock_guard<std::mutex> lk(cout_mtx);
-                std::cout << "[server] echoed back " << payload.size()
-                          << " bytes to " << inet_ntoa(cli.sin_addr)
-                          << ":" << ntohs(cli.sin_port) << std::endl;
-            }
         }
     }
 

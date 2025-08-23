@@ -35,7 +35,7 @@ services:
       net.ipv4.ipfrag_high_thresh:  26214400  
       net.ipv4.ipfrag_low_thresh:   19660800
       net.ipv4.ipfrag_time:         30      
-    cpu_quota: 100000
+    # cpu_quota: 1000000
     mem_limit: 64m
     ulimits:
       nproc: 1024
