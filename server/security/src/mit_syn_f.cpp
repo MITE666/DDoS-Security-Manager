@@ -207,10 +207,6 @@ void TCPSYNCookieProxy::sniff_for_syns() {
         }
 
         if (th->syn == 1 && th->ack == 0) {
-            if (capped_) {
-                continue;
-            }
-
             syn_counter_.fetch_add(1, std::memory_order_relaxed);
 
             auto now = Clock::now();
@@ -271,7 +267,8 @@ void TCPSYNCookieProxy::periodic_logger()
                   << dropped << " dropped" << std::endl;
         
         if (!capped_ && dropped > max_dropped_) {
-            std::cout << "[mit_syn_f] DISABLE SYN INPUT" << std::endl;
+            std::cout << "[mit_syn_f] ENABLE SYN RATE LIMIT" << std::endl;
+            enable_limiter();
             capped_ = true;
         }
     }
@@ -647,4 +644,18 @@ void TCPSYNCookieProxy::ban_reload_loop() {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
+}
+
+void TCPSYNCookieProxy::enable_limiter() {
+    std::ostringstream accept_rule, drop_rule;
+    accept_rule << "iptables -I INPUT -i eth0 -p tcp --dport " << PORT
+                << " --syn -m limit --limit " << 100
+                << "/second --limit-burst " << 200
+                << " -j ACCEPT";
+
+    drop_rule << "iptables -A INPUT -i eth0 -p tcp --dport " << PORT
+              << " --syn -j DROP";
+
+    std::system(accept_rule.str().c_str());
+    std::system(drop_rule.str().c_str());
 }

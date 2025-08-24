@@ -64,4 +64,5 @@ private:
     static void remove_conn_activity_for_ip(const std::string& ip);
     void reload_banned_ips();
     void ban_reload_loop();
+    void enable_limiter();
 };
