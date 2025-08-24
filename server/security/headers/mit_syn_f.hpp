@@ -24,18 +24,21 @@
 
 class TCPSYNCookieProxy {
 public:
-    TCPSYNCookieProxy(const std::string& secret_key, std::size_t window_secs);
+    TCPSYNCookieProxy(const std::string& secret_key, std::size_t window_secs, const int max_dropped);
     ~TCPSYNCookieProxy();
 
     void run();
 
 private:
+    bool                        capped_;
+
     int                         recv_sock_;
     int                         send_sock_;
     int                         udp_sock_;
 
     const std::string           secret_key_;
     const std::size_t           window_secs_;
+    const int                   max_dropped_;
 
     std::set<std::pair<std::string, uint16_t>> promoted_flows_;
     

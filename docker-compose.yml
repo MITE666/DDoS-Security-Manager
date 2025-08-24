@@ -36,7 +36,7 @@ services:
       net.ipv4.ipfrag_low_thresh:   19660800
       net.ipv4.ipfrag_time:         30      
     # cpu_quota: 1000000
-    mem_limit: 64m
+    mem_limit: 128m
     ulimits:
       nproc: 1024
       nofile:

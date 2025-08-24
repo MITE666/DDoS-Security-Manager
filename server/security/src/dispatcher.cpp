@@ -20,8 +20,9 @@ int main() {
 
     const std::string SYN_KEY           = "my_very_secret_key";
     constexpr std::size_t SYN_WIN_S     = 5;
+    const int SYN_MAX_DROPPED           = 500;
 
-    TCPSYNCookieProxy syn_mit{SYN_KEY, SYN_WIN_S};
+    TCPSYNCookieProxy syn_mit{SYN_KEY, SYN_WIN_S, SYN_MAX_DROPPED};
     std::thread syn_th([&](){ syn_mit.run(); });
 
     udp_th.join();

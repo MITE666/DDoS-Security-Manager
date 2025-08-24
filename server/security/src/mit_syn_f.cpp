@@ -14,13 +14,16 @@
 
 TCPSYNCookieProxy::TCPSYNCookieProxy(
     const std::string& secret_key,
-    std::size_t        window_secs
+    std::size_t        window_secs,
+    const int          max_dropped
 )
   : recv_sock_{-1},
     send_sock_{-1},
     udp_sock_{-1},
     secret_key_{secret_key},
-    window_secs_{window_secs}
+    window_secs_{window_secs},
+    capped_{false},
+    max_dropped_{max_dropped}
 {
     int ret = std::system(
         "iptables -I OUTPUT -o eth0 "
@@ -204,6 +207,9 @@ void TCPSYNCookieProxy::sniff_for_syns() {
         }
 
         if (th->syn == 1 && th->ack == 0) {
+            if (capped_) {
+                continue;
+            }
 
             syn_counter_.fetch_add(1, std::memory_order_relaxed);
 
@@ -263,6 +269,11 @@ void TCPSYNCookieProxy::periodic_logger()
                   << count << " SYN(s) seen, "
                   << promoted << " promoted, "
                   << dropped << " dropped" << std::endl;
+        
+        if (!capped_ && dropped > max_dropped_) {
+            std::cout << "[mit_syn_f] DISABLE SYN INPUT" << std::endl;
+            capped_ = true;
+        }
     }
 }
 

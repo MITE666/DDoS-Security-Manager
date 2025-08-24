@@ -147,7 +147,7 @@ void TCPConnFloodMitigator::ban_ip(const std::string& src_ip) {
 std::string TCPConnFloodMitigator::conn_key(const std::string& src_ip, uint16_t src_port)
 {
     return src_ip + ":" + std::to_string(src_port)
-         + "→" + std::to_string(PORT);
+         + "->" + std::to_string(PORT);
 }
 
 std::string TCPConnFloodMitigator::ip_to_string(uint32_t ip_network_order)
